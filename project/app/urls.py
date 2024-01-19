@@ -8,6 +8,4 @@ urlpatterns = [
     path('view-loan/<int:loan_id>/', view_loan, name='view_loan'),
     path('view-loans/<int:customer_id>/', view_loans_by_customer, name='view_loans_by_customer'),
 
-    
-    # Add more endpoints as needed
 ]

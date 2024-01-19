@@ -14,15 +14,22 @@ def register(request):
     if request.method == 'POST':
         serializer = CustomerSerializer(data=request.data)
         if serializer.is_valid():
-            # Calculate approved limit using compound interest scheme
-            monthly_salary = serializer.validated_data['monthly_income']
-            approved_limit = round(36 * monthly_salary, -5)  # rounding to nearest lakh
+            monthly_salary = serializer.validated_data['monthly_salary']
+            approved_limit = round(36 * monthly_salary) 
             serializer.validated_data['approved_limit'] = approved_limit
-
-            # Save the customer to the database
-            serializer.save()
-
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
+            customer = serializer.save()
+            customer_id = customer.customer_id
+            response_data = {
+                "customer_id": customer_id,
+                "first_name": customer.first_name,
+                "last_name": customer.last_name,
+                "age": customer.age,
+                "monthly_salary": customer.monthly_salary,
+                "phone_number": customer.phone_number,
+                "approved_limit": customer.approved_limit,
+            }
+            
+            return Response(response_data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -30,14 +37,15 @@ def register(request):
 def check_eligibility(request):
     print('CHECK ELIGIBILITY VIEW STARTS')
     serializer = EligibilityCheckSerializer(data=request.data)
-    if serializer.is_valid():
-        customer_id = serializer.validated_data['customer_id']
-        loan_amount = serializer.validated_data['loan_amount']
-        interest_rate = serializer.validated_data['interest_rate']
-        tenure = serializer.validated_data['tenure']
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    customer_id = serializer.validated_data['customer_id']
+    loan_amount = serializer.validated_data['loan_amount']
+    interest_rate = serializer.validated_data['interest_rate']
+    tenure = serializer.validated_data['tenure']
         
     credit_score = calculate_credit_score(customer_id)
-    approval, corrected_interest_rate, monthly_installment = check_loan_eligibility(loan_amount, interest_rate, tenure, credit_score)
+    approval, corrected_interest_rate, monthly_installment = check_approval(loan_amount, interest_rate, tenure, credit_score)
     print('CREDIT SCORE RETRIEVED FROM FUNCTION: ', credit_score)
     print('APPROVAL RETRIEVED FROM FUNCTION: ', approval)
     print('CORRECTED INTEREST RATE RETRIEVED FROM FUNCTION: ', corrected_interest_rate)
@@ -58,7 +66,7 @@ def check_eligibility(request):
 
 
 
-def check_loan_eligibility(loan_amount, interest_rate, tenure, credit_score):
+def check_approval(loan_amount, interest_rate, tenure, credit_score):
     credit_score =  int(credit_score)
     if credit_score > 50:
         approval = True
@@ -78,6 +86,7 @@ def check_loan_eligibility(loan_amount, interest_rate, tenure, credit_score):
     else:
         monthly_installment = 0
     return approval, corrected_interest_rate, monthly_installment
+
 def calculate_credit_score(customer_id):
     print('started')
     credit_score = 100
@@ -85,7 +94,6 @@ def calculate_credit_score(customer_id):
     print('Customer', customer)
     loans = Loan.objects.filter(customer_id=customer_id)
     print('LOANS: ',loans)
-    # on_time_payments = loans.filter(emis_paid_on_time=).count()
     current_date = datetime.now()
     print('1')
     print(current_date)
@@ -109,7 +117,7 @@ def calculate_credit_score(customer_id):
             credit_score -= 20
             break 
     print('LOAN PAID ON TIME SCORE: ', credit_score)
-    past_loans =  expired_loans.count()   
+    past_loans =  expired_loans.count()   # Expired Loans in the past count
     print(past_loans)   
     credit_score -= past_loans * 17
     print('PAST LOANS SCORE: ',credit_score) # Adjust score based on on-time payments
@@ -119,8 +127,6 @@ def calculate_credit_score(customer_id):
     credit_score -= current_year_loans * 10
     print('LOANS: ', loans)
     customer_loans = Loan.objects.filter(customer_id=customer_id)
-
-    # Extract loan amounts into a list and calculate the total
     loan_amounts = [loan.loan_amount for loan in customer_loans]
     total_loan_amount = sum(loan_amounts)
     print('total: ', total_loan_amount)
@@ -139,23 +145,20 @@ def calculate_credit_score(customer_id):
 
 @api_view(['POST'])
 def create_loan(request):
-    # Validate the request data
     serializer = EligibilityCheckSerializer(data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-    # Extract data from the serializer
     customer_id = serializer.validated_data['customer_id']
     loan_amount = serializer.validated_data['loan_amount']
     interest_rate = serializer.validated_data['interest_rate']
     tenure = serializer.validated_data['tenure']
 
     # Check loan eligibility
-    approval, corrected_interest_rate, monthly_installment = check_loan_eligibility(
-        loan_amount, interest_rate, tenure, customer_id
-    )
+    credit_score = calculate_credit_score(customer_id)
+    approval, corrected_interest_rate, monthly_installment = check_approval(loan_amount, interest_rate, tenure, credit_score)
 
-    if not approval:
+    if approval == False:
+        print('LOAN NOT APPROVED')
         # Loan is not approved
         response_data = {
             'loan_id': None,
@@ -166,9 +169,9 @@ def create_loan(request):
         return Response(response_data, status=status.HTTP_200_OK)
 
     try:
-        # Use get to fetch the customer without raising a 404 error
+        # Check for customer
         customer = Customer.objects.get(pk=customer_id)
-    except Customer.DoesNotExist:
+    except:
         raise Http404("Customer does not exist")
 
     # Loan is approved, create a new Loan object and save it
@@ -178,7 +181,7 @@ def create_loan(request):
         interest_rate=corrected_interest_rate,
         tenure=tenure,
         monthly_payment=monthly_installment,
-        emis_paid_on_time=0,  # Assuming no EMIs paid on time initially
+        emis_paid_on_time=0,  # Initial EMIs set to 0
         start_date=datetime.now().date(),
         end_date=datetime.now().date() + relativedelta(months=tenure)
     )
@@ -199,13 +202,9 @@ def view_loan(request, loan_id):
         loan = Loan.objects.get(loan_id=loan_id)
     except:
         return Response({"detail": "Loan not found"}, status=status.HTTP_404_NOT_FOUND)
-
-    # Retrieve customer associated with the loan
     customer = Customer.objects.get(customer_id = loan.customer_id)
-    # Serialize customer data
-    customer_serializer = CustomerSerializer(customer)
 
-    # Construct the response data
+    customer_serializer = CustomerSerializer(customer)    # Serialize customer data
     response_data = {
         "loan_id": loan_id,
         "customer": customer_serializer.data,

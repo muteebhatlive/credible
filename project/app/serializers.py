@@ -4,7 +4,7 @@ from .models import Customer, Loan
 class CustomerSerializer(serializers.ModelSerializer):
     class Meta:
         model = Customer
-        fields = '__all__'
+        fields = ['first_name', 'last_name', 'age' , 'monthly_salary', 'phone_number']
         
 class EligibilityCheckSerializer(serializers.Serializer):
     customer_id = serializers.CharField()
