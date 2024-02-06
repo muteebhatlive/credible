@@ -35,7 +35,6 @@ def register(request):
 
 @api_view(['POST'])
 def check_eligibility(request):
-    print('CHECK ELIGIBILITY VIEW STARTS')
     serializer = EligibilityCheckSerializer(data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -46,9 +45,6 @@ def check_eligibility(request):
         
     credit_score = calculate_credit_score(customer_id)
     approval, corrected_interest_rate, monthly_installment = check_approval(loan_amount, interest_rate, tenure, credit_score)
-    print('CREDIT SCORE RETRIEVED FROM FUNCTION: ', credit_score)
-    print('APPROVAL RETRIEVED FROM FUNCTION: ', approval)
-    print('CORRECTED INTEREST RATE RETRIEVED FROM FUNCTION: ', corrected_interest_rate)
     
     
     
@@ -88,57 +84,35 @@ def check_approval(loan_amount, interest_rate, tenure, credit_score):
     return approval, corrected_interest_rate, monthly_installment
 
 def calculate_credit_score(customer_id):
-    print('started')
     credit_score = 100
     customer = Customer.objects.get(pk=customer_id)
-    print('Customer', customer)
     loans = Loan.objects.filter(customer_id=customer_id)
-    print('LOANS: ',loans)
     current_date = datetime.now()
-    print('1')
-    print(current_date)
-    print(type(current_date))
     current_date = current_date.date()
     current_date = current_date.strftime("%d-%m-%Y")
-    print(current_date)
-    print(type(current_date))
     date_object = datetime.strptime(current_date, "%d-%m-%Y").date()
-    print(date_object)
-    print(type(date_object))
     expired_loans = Loan.objects.filter(end_date__lt = date_object, customer_id=customer_id)
-    print(expired_loans)
     for loans in expired_loans:
         if loans.tenure == loans.emis_paid_on_time:
-            print('True', loans.end_date)
             credit_score += 20
             
         else: 
-            print('False', loans.end_date)
             credit_score -= 20
             break 
-    print('LOAN PAID ON TIME SCORE: ', credit_score)
     past_loans =  expired_loans.count()   # Expired Loans in the past count
-    print(past_loans)   
     credit_score -= past_loans * 17
-    print('PAST LOANS SCORE: ',credit_score) # Adjust score based on on-time payments
     current_year = datetime.now().year
     current_year_loans = Loan.objects.filter(start_date__year=current_year).count()
-    print(current_year_loans)
     credit_score -= current_year_loans * 10
-    print('LOANS: ', loans)
     customer_loans = Loan.objects.filter(customer_id=customer_id)
     loan_amounts = [loan.loan_amount for loan in customer_loans]
     total_loan_amount = sum(loan_amounts)
-    print('total: ', total_loan_amount)
     credit_score -= total_loan_amount / 1000000
-    print('TOTAL LOAN: ',credit_score)
     if total_loan_amount > customer.approved_limit:
         credit_score = 0
-        print('Higher Loan Amount Than Limit !!!', credit_score)
     else:
-        print ('NOT Higher Loan Amount Than Limit: ', credit_score)
+        pass
     credit_score = max(0, min(credit_score, 100))
-    print(credit_score)
     return(credit_score)
 
 
@@ -158,7 +132,6 @@ def create_loan(request):
     approval, corrected_interest_rate, monthly_installment = check_approval(loan_amount, interest_rate, tenure, credit_score)
 
     if approval == False:
-        print('LOAN NOT APPROVED')
         # Loan is not approved
         response_data = {
             'loan_id': None,
